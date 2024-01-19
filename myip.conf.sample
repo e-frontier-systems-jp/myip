@@ -1,0 +1,62 @@
+##
+## myip service config
+##
+
+#
+# .pidファイルパス
+#
+PID_PATH="/var/run/myip.pid"
+
+#
+# マイIPの各コマンドなどのパス
+#
+MYIP_CONF="/etc/myip/myip.conf"
+MYIP_UP="/etc/myip/myip-up"
+MYIP_DOWN="/etc/myip/myip-down"
+
+#
+# ローカルエリアネットワークを指定
+#
+LOCAL_NETWORKS=(
+    "192.168.10.0/24"
+)
+
+#
+# ローカルエリアネットワークゲートウェイを指定
+#
+LOCAL_GATEWAY="192.168.10.1"
+
+#
+# ローカルエリアネットワークのDNSサーバー
+#
+LOCAL_DNS1="8.8.8.8"
+LOCAL_DNS2="8.8.4.4"
+
+#
+# SSH接続を可能にするサーバーのIP一覧
+#
+SERVER_IPS=(
+    "123.123.123.123"
+    "234.234.234.234"
+)
+
+#
+# SSH接続に使用するポート番号
+#
+SSH_PORT="AUTO"
+
+#
+# ポーリング間隔(秒)
+#
+POLLING_TIME="5"
+
+#
+# システムresolv.confファイルパス
+#
+RESOLV_CONF_FILE="/etc/resolv.conf"
+
+#
+# バックアップ用resolv.confファイルパス
+#
+RESOLV_BACK_FILE="${PWD}/resolv.conf"
+

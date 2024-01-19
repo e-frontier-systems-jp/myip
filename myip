@@ -1,0 +1,177 @@
+#!/bin/bash
+
+PWD=`echo $(cd $(dirname $0) && pwd)`
+
+#
+# 設定フィイルのパス
+#
+CONFIG_DIR="/usr/local/etc"
+CONFIG_FILE="${CONFIG_DIR}/myip.conf"
+
+startup()
+{
+    source $CONFIG_FILE
+    source $MYIP_CONF
+
+    if [ -f ${PID_PATH} ]; then
+        echo $0 is locked
+        exit 100
+    fi
+
+    echo $$ > ${PID_PATH}
+}
+
+end()
+{
+    rm -f ${PID_PATH}
+    echo bye...
+}
+
+trap startup HUP
+trap end EXIT
+startup
+
+# ログ出力
+log()
+{
+    if [ "$#" -ne 0 ]; then
+        echo "`date "+%Y-%m-%d %H:%M:%S"` [$$]: $@"
+    fi
+}
+
+detect_ssh_port()
+{
+    if [ "$SSH_PORT" = "AUTO" ]; then
+        if [ ! -f "/etc/ssh/sshd_config" ]; then
+            return 1
+        fi
+        PORT=`grep "Port" /etc/ssh/sshd_config`
+        SSH_PORT=`echo ${PORT#"Port"} | sed -e 's/[^0-9]//g'`
+
+    fi
+    return 0
+}
+
+backup_resolv_conf()
+{
+    cp $RESOLV_CONF_FILE $RESOLV_BACK_FILE
+}
+
+restore_resolv_conf()
+{
+    cp $RESOLV_BACK_FILE $RESOLV_CONF_FILE
+}
+
+# ppp0インターフェイスが存在するかどうか
+check_exists_ppp0()
+{
+    RESULT=$(ip address show ppp0 2>/dev/null )
+    if [ $? -eq 0 ]; then
+        return 1
+    fi
+    return 0
+}
+
+# SSH接続制限設定
+firewall_ssh_limit()
+{
+    for NETWORK in ${LOCAL_NETWORKS[@]}
+    do
+        RESULT=$(sudo ufw allow in on enp1s0f0 from ${NETWORK} comment 'Allow from local network.' 2>/dev/null)
+    done
+
+    # PPTPパススルー設定
+    RESULT=$(sudo ufw allow in on enp1s0f0 to 0.0.0.0/0 port 1723 proto tcp comment 'PPTP pass through' 2>/dev/null)
+    RESULT=$(sudo ufw allow in on enp1s0f0 to 0.0.0.0/0 proto gre comment 'PPTP pass through' 2>/dev/null)
+
+    # VPSサーバーからSSH接続を可能にする
+    for SERVER in ${SERVER_IPS[@]}
+    do
+        RESULT=$(sudo ufw limit in on ppp0 from ${SERVER} port ${SSH_PORT} proto tcp comment 'Rate limit for SSH server' 2>/dev/null)
+    done
+}
+
+rewrite_routes()
+{
+    # ルートを書き換え
+    for SERVER in ${SERVER_IPS[@]}
+    do
+        sudo ip route add ${SERVER}/32 via ${IPADDR}
+    done
+
+    # default gateway を書き換え
+    sudo ip route del default
+    sudo ip route add default via ${LOCAL_GATEWAY}
+
+    log "デフォルトゲートウェイを切り替えました。"
+
+    # リゾルバ書き換え
+    RESOLVER=$(cat << EOS
+nameserver ${LOCAL_DNS1}"
+nameserver ${LOCAL_DNS2}"
+EOS
+)
+    sudo sh -c "echo ${RESOLVER}" > $RESOLV_CONF_FILE
+
+    log "リゾルバを書き換えました。"
+
+    return 0
+}
+
+# MyIP up
+myip_up()
+{
+    # ファイアーウォールを設定
+    firewall_ssh_limit
+
+    # MyIPをup
+    $MYIP_UP
+    if [ $? -ne 0 ]; then
+        log "マイIPへの接続に失敗しました。"
+        return 1
+    fi
+    log "マイIPへ接続しました。"
+
+    return 0
+}
+
+
+myip_down()
+{
+    RESULT=$($MYIP_DOWN 2>/dev/null)
+    RES=$?
+    log $RESULT
+    return $?
+}
+
+# resolv.conf をバックアップ
+backup_resolv_conf
+
+# メインループ
+while :
+do
+    check_exists_ppp0
+    if [ $? -eq 0 ]; then
+        detect_ssh_port
+
+        # 予めMyIPを一旦ダウンさせる
+        check_exists_ppp0
+        #if [ $? -eq 1 ]; then
+            myip_down
+        #fi
+        myip_up
+        if [ $? -eq 1 ]; then
+            # リゾルバを書き換え
+            restore_resolv_conf
+            continue
+        fi
+
+        rewrite_routes
+
+        log "ポート${SSH_PORT}でSSH接続を待ち受け中です."
+    fi
+
+    log "${POLLING_TIME}秒待機中."
+    sleep $POLLING_TIME
+done
+
