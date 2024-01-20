@@ -31,6 +31,8 @@ chmod +x ./myip.setup.sh
 sudo ./myip.setup.sh
 ```
 
+** インストール後はクローンしたディレクトリごと削除しても問題ありません。 **
+
 4. サービスをスタート
 
 ```bash
